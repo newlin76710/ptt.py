@@ -5,10 +5,12 @@ import collections
 import json
 import argparse
 import time
-
+import re
 import requests
 from bs4 import BeautifulSoup
-
+headers = {
+    'User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/63.0.3239.108 Safari/537.36'
+}
 
 # exception
 class Error(Exception):
@@ -237,16 +239,17 @@ class ArticlePage(Page):
     default_json_attrs = default_attrs + ['pushes.count', 'pushes.simple_expression']
 
     def __init__(self, url):
+
         super().__init__(url)
 
         _, _, self.aid = parse_std_url(url)
-
+        #print(self.aid)
         # to set article_tags
         soup = BeautifulSoup(self.html, 'lxml')
         main_tag = soup.find('div', id='main-content')
         meta_name_tags = main_tag.find_all('span', class_='article-meta-tag')
         meta_value_tags = main_tag.find_all('span', class_='article-meta-value')
-
+        #print(main_tag.text)
         # dealing meta
         try:
             self.author = meta_value_tags[0].get_text().strip()
@@ -257,9 +260,45 @@ class ArticlePage(Page):
             self.category, self.isreply, self.isforward = parse_title(self.title)
             self.datetime = datetime.datetime.strptime(self.date, '%a %b %d %H:%M:%S %Y')
         except:
-            self.author, self.board, self.title, self.date = '', '', '', ''
-            self.category, self.isreply, self.isforward = '', False, False
-            self.datetime = None
+            url2 = "https://www.pttweb.cc"+url.split('.html')[0]
+            #print(url2)
+            r2 = requests.get(url2, headers=headers)
+            soup2 = BeautifulSoup(r2.text, 'html.parser')
+            #main_tag = soup2.find('div', class_='e7-grid-wrapper')
+            #print(soup2)
+            meta_value_tags = soup2.find_all('span', class_='e7-head-content')
+            self.board = meta_value_tags[0].get_text().strip()
+            self.author = meta_value_tags[1].get_text().strip()
+            self.date = meta_value_tags[2].get_text().strip()
+            self.date = self.date.split('(')[1].split(')')[0]
+            # print(self.board)
+            # print(self.author)
+            # print(self.date)
+            self.title = soup2.find('h1', class_='title').text
+            #print(self.title)
+            # regex = re.compile(r'作者: (.*) ')
+            # match = regex.search(main_tag.text)
+            # if match:
+            #     self.author = match.group(1)
+            # regex = re.compile(r'看板: (.*)')
+            # match = regex.search(main_tag.text)
+            # if match:
+            #     self.board = match.group(1)
+            # regex = re.compile(r'標題: (.*)')
+            # match = regex.search(main_tag.text)
+            # if match:
+            #     self.title = match.group(1)
+            # regex = re.compile(r'時間: (.*)')
+            # match = regex.search(main_tag.text)
+            # if match:
+            #     self.date = match.group(1)
+            # self.author, self.board, self.title, self.date = '', '', '', ''
+            # self.category, self.isreply, self.isforward = '', False, False
+            # self.datetime = None
+            self.category, self.isreply, self.isforward = parse_title(self.title)
+            self.datetime = datetime.datetime.strptime(self.date, '%Y/%m/%d %H:%M')
+            #self.datetime = datetime.datetime.strptime(self.date, '%a %b %d %H:%M:%S %Y')
+            #print(self.datetime)
 
         # remove meta
         for tag in main_tag.select('div.article-metaline'):
@@ -297,7 +336,8 @@ class ArticlePage(Page):
                 else:
                     dic.setdefault(key, []).append(value)
                     tag.extract()
-        self.ip = dic['發信站'][0].split()[-1]
+        if '發信站' in dic.keys():
+            self.ip = dic['發信站'][0].split()[-1]
 
         # remove richcontent
         for tag in main_tag.find_all('div', class_='richcontent'):
@@ -315,7 +355,11 @@ class ArticlePage(Page):
                 tag.extract()
 
         # split main content and signature
-        self.content, self.signature = str(main_tag).split('--')[:2]
+        if len(str(main_tag).split('--')) >= 2:
+            self.content, self.signature = str(main_tag).split('--')[:2]
+        else:
+            self.content = str(main_tag).split('--')[0]
+            self.signature = ''
         self.content = self.content.strip()
 
         contents = self.content.split('\n')
